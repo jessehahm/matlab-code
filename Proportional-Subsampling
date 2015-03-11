@@ -1,0 +1,416 @@
+%Author: Jesse Hahm, with intellectual contributions from Cliff Riebe
+%This code was used to poll an area's tree canopy cover that had the same multivariate probability distribution of elevation, aspect, and slope as an area of interest.
+%See Hahm et al., 2014, Bedrock composition regulates mountain ecosystems and landscape evolution for more details.
+
+
+% clearvars -except fileCD fileOD
+clear all
+close all
+
+%OD = original distribution
+%CD = distribution to compare to
+%SD = subsample of compared distribution
+
+%% Read In Data  
+delimiterIn = ',';
+headerlinesIn = 1;
+filenameOD=['Data\sjk_all_noGlac_v2_noFlats_NumericOnly_inKbm','.txt'];
+filenameCD=['Data\sjk_all_noGlac_v2_noFlats_NumericOnly_outKbm','.txt'];
+
+fileCD = importdata(filenameCD, delimiterIn, headerlinesIn);
+fileOD = importdata(filenameOD, delimiterIn, headerlinesIn);
+
+%Column locations in file.data structure
+xData = 9; %elevation
+yData = 6; %slope
+zData = 8; %aspect
+biomassData = 7; %actually %canopy cover
+% xData = 1; %elevation
+% yData = 3; %slope
+% zData = 2; %aspect
+% biomassData = 4; %actually %canopy cover
+
+
+
+
+
+%% Establish # of bins -or- Establish Bin Width, based on OD
+nX = 6;
+nY = 3;
+nZ = 5;
+% Determine Bin Width
+binWidthX = ((max(fileOD.data(:,xData))-min(fileOD.data(:,xData)))/nX);
+binWidthY = ((max(fileOD.data(:,yData))-min(fileOD.data(:,yData)))/nY);
+binWidthZ = ((max(fileOD.data(:,zData))-min(fileOD.data(:,zData)))/nZ);
+
+%% Determine first (or minimum) bin midpoint
+binMinMidptX = min(fileOD.data(:,xData))+binWidthX/2;
+binMinMidptY = min(fileOD.data(:,yData))+binWidthY/2;
+binMinMidptZ = min(fileOD.data(:,zData))+binWidthZ/2;
+
+%% Populate 1xn arrays of bin midpoints; preallocate for speed!
+binMdptsX = zeros(1,nX); 
+binMdptsY = zeros(1,nY); 
+binMdptsZ = zeros(1,nZ);
+for i = 0:nX-1
+binMdptsX(i+1) = (binMinMidptX + binWidthX*i);
+end
+for i = 0:nY-1
+binMdptsY(i+1) = (binMinMidptY + binWidthY*i);
+end
+for i = 0:nZ-1
+binMdptsZ(i+1) = (binMinMidptZ + binWidthZ*i);
+end
+
+%% Bin assignment of each x, y and z value in 'bin' matrix of OD
+bin(:,1) = ceil((fileOD.data(:,xData)-min(fileOD.data(:,xData)))/binWidthX);
+bin(:,2) = ceil((fileOD.data(:,yData)-min(fileOD.data(:,yData)))/binWidthY);
+bin(:,3) = ceil((fileOD.data(:,zData)-min(fileOD.data(:,zData)))/binWidthZ);
+%Deal with exceptional left endpoint case
+for i = 1:length(fileOD.data)
+if bin(i,1) == 0
+    bin(i,1) =  1;
+end
+if bin(i,2) == 0
+    bin(i,2) =  1;
+end
+if bin(i,3) == 0
+    bin(i,3) =  1;
+end
+end
+
+%% Bin assignment of each x, y and z value in 'binCD' matrix  CD
+%This may assign negative bin #s or bin #s greater than the biggest bin #
+%in the OD bin matrix; this is ok, they will just be ignored
+binCD(:,1) = ceil((fileCD.data(:,xData)-min(fileOD.data(:,xData)))/binWidthX);
+binCD(:,2) = ceil((fileCD.data(:,yData)-min(fileOD.data(:,yData)))/binWidthY);
+binCD(:,3) = ceil((fileCD.data(:,zData)-min(fileOD.data(:,zData)))/binWidthZ);
+%Deal with exceptional left endpoint case
+for i = 1:length(fileCD.data)
+if binCD(i,1) == 0
+    binCD(i,1) =  1;
+end
+if binCD(i,2) == 0
+    binCD(i,2) =  1;
+end
+if binCD(i,3) == 0
+    binCD(i,3) =  1;
+end
+end
+
+%% Create matrix (numInBinOD) of number of points in each bin. nX by nY by nZ matrix for OD
+numInBinOD = zeros(nX,nY,nZ); %preallocate for speed
+%cycle through bins
+for i = 1:nX 
+    for j = 1:nY    
+        for k = 1:nZ
+         index=((bin(:,1)==i) & (bin(:,2)==j) & (bin(:,3)==k)); %creates index matrix for current bin. 1 if in current bin, 0 if false
+         numInBinOD(i,j,k) = sum(index(:,1)); %Add all the 1s for the current bin
+        end
+    end
+end
+
+%% Create matrix (numInBinCD) of number of points in each bin. nX by nY by nZ matrix for CD
+numInBinCD = zeros(nX,nY,nZ); %preallocate for speed
+%cycle through bins
+for i = 1:nX 
+    for j = 1:nY    
+        for k = 1:nZ
+         index=((binCD(:,1)==i) & (binCD(:,2)==j) & (binCD(:,3)==k)); %creates index matrix for current bin. 1 if in current bin, 0 if false
+         numInBinCD(i,j,k) = sum(index(:,1)); %Add all the 1s for the current bin
+        end
+    end
+end
+
+%% Determine which bin in CD is limiting
+% f stands for fraction
+%Switch from number in bin to fraction of total number in bin
+fnumInBinOD = numInBinOD./sum(numInBinOD(:));
+fnumInBinCD = numInBinCD./sum(numInBinCD(:));
+fDivide=(fnumInBinOD./fnumInBinCD);
+%If maximum value = infinity and F(Total) original of that bin =/ 0, then distribution cannot be sampled proportionately
+for i = 1:nX 
+    for j = 1:nY    
+        for k = 1:nZ
+         if numInBinOD(i,j,k) == 0; 
+         fDivide(i,j,k) = 0; %Replace the infinities that result from 0/0
+         end
+        end
+    end
+end
+for i = 1:nX 
+    for j = 1:nY    
+        for k = 1:nZ
+         if fDivide(i,j,k) == Inf; %If infinities still remain, distributions can't be compared
+         'Cannot compare distributions'
+         end
+        end
+    end
+end
+
+
+[dummy1,I] = max(fDivide(:)); %C is count in limiting bin, I is index of that bin
+[C,dummy2] = max(fnumInBinOD(:));
+%Once limiting bin is identified, the number in that bin should be F(Total) original of that bin of the sampled distribution
+format long;
+sum_numInBinSD = numInBinCD(I)/C;
+
+
+numInBinSD_fractions = fnumInBinOD.*sum_numInBinSD;%populate the number of points in each bin needed in the subsampled distribution
+numInBinSD = floor(numInBinSD_fractions); % round down to whole numbers
+
+%% Repopulate XYZBiomass (distSD) table by randomly subsampling CD based on numInBinSD
+totalNumBins = nX*nY*nZ;
+distSD = [];
+for i = 1:totalNumBins
+if (numInBinSD(i) ~= 0)
+   %At each bin in numInBinSD, randomly sample (w/o replacement) the
+   %elements in the CD distribution for that bin the number of times indicated in
+   %numInBinSD. Add those values to a new table, distSD.
+   
+   %Need to sample w/o replacement numInBinSD(i) times.
+   %Need to randomly sample numInBinSD(i) elements from 0 to numInBinCD(i)
+   population = 1:1:numInBinCD(i);
+   sampleOrder = randsample(population,numInBinSD(i));
+   
+
+  %Determine row, column, and page subscripts; these equal bin numbers for
+  %bin i
+  [subXX,subYY,subZZ] = ind2sub(size(numInBinCD),i);
+  binsX=repmat(subXX,length(binCD),1);
+  binsY=repmat(subYY,length(binCD),1);
+  binsZ=repmat(subZZ,length(binCD),1);
+  bins =  [binsX,binsY,binsZ];
+  index=((binCD(:,1)==bins(:,1)) & (binCD(:,2)==bins(:,2)) & (binCD(:,3)==bins(:,3))); 
+  
+  k=0;
+   for j = 1:length(index);
+    if index(j) == 1;
+        k = k+1;
+        if ismember(k,sampleOrder)
+           distSD = cat(1,distSD,fileCD.data(j,:)); 
+
+        end
+    end
+   end
+end
+end
+    
+%Save proportionately subsampled data
+% csvwrite('distSD.csv',distSD)
+
+
+%% Plot CDFs of variable to be compared
+figure1 = figure();
+
+axes1 = axes('Parent',figure1,'FontSize',7,'FontName','Arial','LineWidth',.5,'TickDir','out');
+
+hold(axes1,'all');
+plot1 = cdfplot(fileOD.data(:,biomassData));
+set(plot1,'LineStyle','none');
+
+xPlotData = get(plot1,'Xdata');
+yPlotData = get(plot1,'Ydata');
+plot2 = plot(xPlotData(1:2:end),yPlotData(1:2:end));
+set(plot2,'LineWidth',.5,'Color',[0 0 0]);
+
+hold on
+clear xPlotData, yPlotData;
+plot3 = cdfplot(fileCD.data(:,biomassData));
+set(plot3, 'LineStyle','none');
+
+xPlotData = get(plot3,'Xdata');
+yPlotData = get(plot3,'Ydata');
+plot4 = plot(xPlotData(1:2:end),yPlotData(1:2:end));
+set(plot4,'LineWidth',.5,'Color',[.5 .5 .5],'LineStyle','--');
+
+
+
+
+hold on
+clear xPlotData, yPlotData;
+plot5 = cdfplot(distSD(:,biomassData));
+set(plot5,  'LineStyle','none')
+
+xPlotData = get(plot5,'Xdata');
+yPlotData = get(plot5,'Ydata');
+plot6 = plot(xPlotData(1:2:end),yPlotData(1:2:end));
+set(plot6,  'LineWidth',.5,'Color',[1 0 0],'LineStyle','-.')
+
+%Axis and title labels
+xlabel('% Tree Canopy Cover','fontsize',7,'FontName','Arial');
+ylabel('Fraction of Total','fontsize',7,'FontName','Arial');
+hold on
+
+%# figure size printed on paper
+paperSizeX = 8.9;
+paperSizeY = 8.9;
+xMargin = 0.25;
+yMargin = 0.25;
+xSize = paperSizeX-2*xMargin;
+ySize = paperSizeX-2*yMargin;
+
+set(gcf, 'PaperUnits','centimeters')
+set(gcf, 'PaperSize',[paperSizeX paperSizeY])
+set(gcf, 'PaperPosition',[xMargin yMargin 3.5 3.5])
+set(gcf, 'PaperOrientation','portrait')
+%set(gcf, 'Position', [0,0,3,3])
+set(gca,'XMinorTick','on','YMinorTick','on')
+set(gca, 'TickLength', get(gca, 'TickLength')*4)
+grid off
+%Save as PDF
+print(figure1,'-dpdf', 'Figs\test.pdf') 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+%{ 
+
+
+%% Plot empirical PDFS
+figure2 = figure();
+
+axes2 = axes('Parent',figure2,'FontSize',16);
+box(axes2,'on');
+grid(axes2,'on');
+hold(axes2,'all');
+%% OD
+clear n bin binWidthX binMinMidptX binMdptsX numInBinX indexX i fnumInBinX distribution
+distribution = fileOD.data(:,biomassData);
+%% Establish # of bins
+%n = round(sqrt(length(distribution)));
+n = 20;
+%% Determine Bin Width and Midpoints
+% Determine Bin Width
+binWidthX = ((max(distribution)-min(distribution))/n);
+
+% Determine first (or minimum) bin midpoint
+binMinMidptX = min(distribution)+binWidthX/2;
+
+% Populate 1xn double array of bin midpoints
+for i = 0:n-1
+binMdptsX(i+1) = (binMinMidptX + binWidthX*i);
+end
+
+%% Bin assignment of each x value in 'bin' matrix
+bin(:,1) = ceil((distribution-min(distribution))/binWidthX);
+
+%Deal with exceptional left endpoint case
+for i = 1:length(distribution)
+if bin(i,1) == 0
+    bin(i,1) =  1;
+    
+end
+end
+
+%% Create array of number of points in each bin 
+for i = 1:n %cycles through bins
+        indexX=(bin(:,1)==i); %creates index matrix for current bin. 1 if in current bin, 0 if false
+        numInBinX(i) = sum(indexX(:,1)); %Add all the 1s for the current bin    
+end
+fnumInBinX = numInBinX(:)./sum(numInBinX);
+%% Plot pdf
+plot4 = plot((binMdptsX-binWidthX/2),fnumInBinX);
+set(plot4,  'LineWidth',4,'Color',[1 0 0]);
+hold on
+
+
+%% CD
+clear n bin binWidthX binMinMidptX binMdptsX numInBinX indexX i fnumInBinX distribution
+distribution = fileCD.data(:,biomassData);
+%% Establish # of bins
+%n = round(sqrt(length(distribution)));
+n = 20;
+%% Determine Bin Width and Midpoints
+% Determine Bin Width
+binWidthX = ((max(distribution)-min(distribution))/n);
+
+% Determine first (or minimum) bin midpoint
+binMinMidptX = min(distribution)+binWidthX/2;
+
+% Populate 1xn double array of bin midpoints
+for i = 0:n-1
+binMdptsX(i+1) = (binMinMidptX + binWidthX*i);
+end
+
+%% Bin assignment of each x value in 'bin' matrix
+bin(:,1) = ceil((distribution-min(distribution))/binWidthX);
+
+%Deal with exceptional left endpoint case
+for i = 1:length(distribution)
+if bin(i,1) == 0
+    bin(i,1) =  1;
+    
+end
+end
+
+%% Create array of number of points in each bin 
+for i = 1:n %cycles through bins
+        indexX=(bin(:,1)==i); %creates index matrix for current bin. 1 if in current bin, 0 if false
+        numInBinX(i) = sum(indexX(:,1)); %Add all the 1s for the current bin    
+end
+fnumInBinX = numInBinX(:)./sum(numInBinX);
+%% Plot pdf
+plot5 = plot((binMdptsX-binWidthX/2),fnumInBinX);
+set(plot5,  'LineWidth',4,'Color',[0 0 0]);
+hold on
+
+
+
+%% SD
+clear n bin binWidthX binMinMidptX binMdptsX numInBinX indexX i fnumInBinX distribution
+distribution = distSD(:,biomassData);
+%% Establish # of bins
+%n = round(sqrt(length(distribution)));
+n = 20;
+%% Determine Bin Width and Midpoints
+% Determine Bin Width
+binWidthX = ((max(distribution)-min(distribution))/n);
+
+% Determine first (or minimum) bin midpoint
+binMinMidptX = min(distribution)+binWidthX/2;
+
+% Populate 1xn double array of bin midpoints
+for i = 0:n-1
+binMdptsX(i+1) = (binMinMidptX + binWidthX*i);
+end
+
+%% Bin assignment of each x value in 'bin' matrix
+bin(:,1) = ceil((distribution-min(distribution))/binWidthX);
+
+%Deal with exceptional left endpoint case
+for i = 1:length(distribution)
+if bin(i,1) == 0
+    bin(i,1) =  1;
+    
+end
+end
+
+%% Create array of number of points in each bin 
+for i = 1:n %cycles through bins
+        indexX=(bin(:,1)==i); %creates index matrix for current bin. 1 if in current bin, 0 if false
+        numInBinX(i) = sum(indexX(:,1)); %Add all the 1s for the current bin    
+end
+fnumInBinX = numInBinX(:)./sum(numInBinX);
+%% Plot pdf
+plot6 = plot((binMdptsX-binWidthX/2),fnumInBinX);
+set(plot6,  'LineWidth',4,'Color',[0 0 1])
+
+
+xlabel('% Tree Canopy Cover','fontsize',16);
+ylabel('Fraction of Total','fontsize',16);
+title({'Empirical PDFs'},'FontSize',16);
+
+%}
