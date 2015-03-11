@@ -1,0 +1,62 @@
+%Author: Jesse Hahm, with intellectual contributions from Cliff Riebe
+
+clear all
+close all
+
+
+%% Read In Data  - code considers values in first column to be the x values of interest!!!
+delimiterIn = ',';
+headerlinesIn = 1;
+filename=['randnumsXY','.csv'];
+file = importdata(filename, delimiterIn, headerlinesIn);
+    
+%% Establish # of bins
+nX = round(sqrt(length(file.data)));
+nY = nX; % leave option to change in future when desired that nX =/ nY
+%% Determine Bin Width and Midpoints
+% Determine Bin Width
+binWidthX = ((max(file.data(:,1))-min(file.data(:,1)))/nX);
+binWidthY = ((max(file.data(:,2))-min(file.data(:,2)))/nY);
+
+% Determine first (or minimum) bin midpoint
+binMinMidptX = min(file.data(:,1))+binWidthX/2;
+binMinMidptY = min(file.data(:,2))+binWidthY/2;
+
+% Populate 1xn double array of bin midpoints
+for i = 0:nX-1
+binMdptsX(i+1) = (binMinMidptX + binWidthX*i);
+end
+for i = 0:nY-1
+binMdptsY(i+1) = (binMinMidptY + binWidthY*i);
+
+end
+
+%% Bin assignment of each x and y value in 'bin' matrix
+bin(:,1) = ceil((file.data(:,1)-min(file.data(:,1)))/binWidthX);
+bin(:,2) = ceil((file.data(:,2)-min(file.data(:,2)))/binWidthY);
+%Deal with exceptional left endpoint case
+for i = 1:length(file.data)
+if bin(i,1) == 0
+    bin(i,1) =  1;
+end
+if bin(i,2) == 0
+    bin(i,2) =  1;
+end
+end
+
+%% Create matrix (numInBin) of number of points in each bin. nX by nY matrix
+for i = 1:nX %cycles through bins
+    for j = 1:nY    
+    index=((bin(:,1)==i) & (bin(:,2)==j)); %creates index matrix for current bin. 1 if in current bin, 0 if false
+        numInBin(i,j) = sum(index(:,1)); %Add all the 1s for the current bin
+    
+   %Create 3 column table with binMidptsX, binMidptsY, # of values in bin
+    xyzTable((i-1)*nY+j,1) = binMdptsX(i);
+    xyzTable((i-1)*nY+j,2) = binMdptsY(j);
+    xyzTable((i-1)*nY+j,3) = numInBin(i,j);
+    end
+end
+%% Plot Histogram (x = bin midpoints of x, y = bin midpoints of y, z = # in bin)
+scatter3(xyzTable(:,1),xyzTable(:,2),xyzTable(:,3))
+figure(2)
+imagesc(binMdptsX,binMdptsY,numInBin)
