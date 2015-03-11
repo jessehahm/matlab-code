@@ -1,1 +1,54 @@
+%Author: Jesse Hahm, with intellectual contributions from Cliff Riebe
+%This code was used to perform statistics on a raster dataset of elevation and tree-canopy cover
+%See Hahm et al., 2014, Bedrock composition regulates mountain ecosystems and landscape evolution for more details.
 
+clear all
+close all
+
+filename = 'rasters/rotcanswa1.tif';
+%filename = 'rasters/RotatedElev1.tif';
+
+[Z, R, bbox] = geotiffread(filename); %read in georeferenced .tif file (exported from ArcGIS)
+raster = double(Z);
+%raster(raster==-32768)=NaN; %replace no value elements in raster with NaN
+raster(raster==255)=NaN; %replace no value elements in raster with NaN
+
+cellSize = 150; %meters (UTM)
+
+%mapshow(raster,R,'DisplayType', 'texturemap'); %look at the raster 
+
+
+n=1;
+cellsPerBin = 20;
+for column = 177:cellsPerBin:1101 %manually check imported raster for start/end columns of real data - often border of NaN
+    
+    chunk = reshape(raster(:, column:(column+cellsPerBin))',numel(raster(:, column:(column+cellsPerBin))),1);
+    
+    %row 402-804
+    binnedResults(n,1) = (n-1)*cellSize*cellsPerBin+cellsPerBin*cellSize/2;    %distance Along Swath (bin midpoint)
+    binnedResults(n,2) = nanmean(chunk);  %mean, ignoring NaN 
+    binnedResults(n,3) = nanmedian(chunk);%median
+    binnedResults(n,4) = prctile(chunk,5);%th percentile
+    binnedResults(n,5) = prctile(chunk,25);%th percentile
+    binnedResults(n,6) = prctile(chunk,75);%th percentile
+    binnedResults(n,7) = prctile(chunk,95);%th percentile
+        
+    
+        n=n+1;
+end
+
+
+figure();
+plot(binnedResults(:,1), binnedResults(:,3));
+hold on
+plot(binnedResults(:,1), binnedResults(:,4));
+hold on
+plot(binnedResults(:,1), binnedResults(:,5));
+hold on
+plot(binnedResults(:,1), binnedResults(:,6));
+hold on
+plot(binnedResults(:,1), binnedResults(:,7));
+hold on
+
+headers = {'SwathDistance', 'mean', 'median', '5th', '25th', '75th', '95th'};
+%csvwrite_with_headers('SwathCanAll.csv', binnedResults,headers)
