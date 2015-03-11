@@ -1,0 +1,226 @@
+%Author: Jesse Hahm
+
+%Script to calculate slope, intercept, and standard error of slope and
+%intercept of paired x-y values with errors in both. 
+
+% Script plots data, weighted and non-weighted regression, and records regression coefficient data to variable "statisticsSummary"
+
+%Following steps outlined in:
+%York et al. 2004, Unified equations for the slope, intercept, and standard errors of the best straight line 
+
+%Checked using dataset from Pearson 1901, Phil. Mag (Dataset 3 in York et al., 2004 Table II.) 
+
+%This script loops through one .csv file containing multiple data sets. 
+%Script wants comma separated value files in this order:
+%Row 1: column headers (data begins row 2)
+%Column 1: string/character Site names (not necessarily unique, but must be unique between consecutive sites
+%Column 2: x
+%Column 4: y
+%Column 3: standard error in x
+%Column 5: standard error in y
+
+clear all
+close all
+delimiterIn = ',';
+headerlinesIn = 1;
+filename=['data\pearson1901data','.csv'];
+file = importdata(filename, delimiterIn, headerlinesIn);
+
+siteColumn = file.textdata(:,1);
+siteNames = siteColumn(2:length(siteColumn),1);
+row = 1;
+rowStart = 1;
+writeDataRow = 2;
+%% Master while loop: considers each dataset individually
+while row < length(file.data(:,1))
+site = siteNames(row);
+
+while strcmp(site,siteNames(row)) == 1 && row ~= length(file.data(:,1))
+    row = row+1; %if site name remains the same, proceed to next row
+end
+
+if row ==length(file.data(:,1))
+    row = row +1; %this will make the script stop when it reaches the end of the file
+end
+
+%Grab x, y, and errors for the data set now under consideration
+X_i=file.data(rowStart:row-1,1);
+Y_i=file.data(rowStart:row-1,2);
+seX_i=file.data(rowStart:row-1,3);
+seY_i=file.data(rowStart:row-1,4);
+rowStart = row; %which row to start on next time around
+
+%% Assign a 10% error to all values without associated errors
+% for j = 1:length(X_i)
+%     if isnan(seX_i(j))==1;
+%         seX_i(j) = X_i(j)*0.1;
+%     end
+%     if isnan(seY_i(j))==1;
+%         seY_i(j) = Y_i(j)*0.1;
+%     end
+% end
+
+
+%% Log transform values and errors
+% seX_i(:,:) = seX_i(:,:)./X_i(:,:);
+% seY_i(:,:) = seY_i(:,:)./Y_i(:,:);
+% X_i(:,:) = log(X_i(:,:));
+% Y_i(:,:) = log(Y_i(:,:));
+
+
+%% aside - calculate r (correlation coefficient)
+Xbar1 = sum(X_i)/length(X_i);
+Ybar1 = sum(Y_i)/length(Y_i);
+U_i1 = X_i-Xbar1;
+V_i1 = Y_i-Ybar1;
+r = sum(U_i1.*V_i1)/(sum(U_i1.*U_i1)*sum(V_i1.*V_i1))^.5;
+
+%% aside - calculate Pearson 1901 slope (orthogonal)
+sigmaX = std(X_i);
+sigmaY = std(Y_i);
+tan2theta = 2*r*sigmaX*sigmaY/(sigmaX^2-sigmaY^2);
+orthoSlope = tan(atan(tan2theta)/2);
+
+%% aside - calculate orthogonal sigmaB
+orthoSigmaS = abs(orthoSlope*(1-r^2)^.5/(r*(length(X_i)-2)^.5));
+
+%% aside - calculate reduced major axis b
+orthoReducedSlope1 = sigmaY/sigmaX*(1+((1-r^2)/length(X_i))^.5);
+orthoReducedSlope2 = sigmaY/sigmaX*(1-((1-r^2)/length(X_i))^.5);
+
+%% Mark and Church 1977 Eqs 3 and 
+Sxx = sum(U_i1.*U_i1);
+Syy = sum(V_i1.*V_i1);
+bHat_m = (r/abs(r))*(Syy/Sxx)^.5;
+markChurchIntercept = Ybar1-bHat_m*Xbar1;
+
+%% Section III of York et al. 2004 - steps numbered similarly
+%(1) choose seed value of b, for instance by simple regression of y on x
+seedAB=polyfit(X_i,Y_i,1); %linear regression
+b = seedAB(1,1);
+%(2) Establish weights. If the errors in x and y are known, then normally
+%omega(X_i) = 1/sigma(X_i)^2 and omega(Y_i)= 1/sigma(Y_i)^2, where
+%sigma(X_i) and sigma(Y_i) are the errors in the x and y coordinates of the
+%ith point
+omegaX_i = 1./seX_i.^2;
+omegaY_i = 1./seY_i.^2;
+
+%(3) Use these weights, with the value of seedB to evaluate W_i for each
+%point
+W_i = (omegaX_i.*omegaY_i)./(omegaX_i+omegaY_i*b^2);
+
+%(4) Use the observed points (X_i, Y_i) and W_i to calculate Xbar and Ybar
+%from which U_i and V_i, and hence beta_i can be evaluated for each point
+Xbar = sum(W_i.*X_i)/sum(W_i);
+Ybar = sum(W_i.*Y_i)/sum(W_i);
+
+U_i = X_i-Xbar;
+V_i = Y_i-Ybar;
+beta_i = W_i.*(U_i./omegaY_i + b*V_i./omegaX_i);
+
+%(5) Use W_i, U_i, V_i, and beta_i in the expression for b in Eq. 13b to
+%calculate an improved estimate of b;
+newB = sum(W_i.*beta_i.*V_i)/sum(W_i.*beta_i.*U_i);
+
+%(6) Use the new b and repeat steps (3), (4), and (5) until successive
+%estimates of b agree within some desired tolerance (e.g. 1 in 10^15)
+iteration = 1;
+while (abs(b - newB) > 0.000000000000001) && iteration < 1000
+   
+   b = newB;
+    iteration = iteration + 1;
+    %3
+    W_i = (omegaX_i.*omegaY_i)./(omegaX_i+omegaY_i*b^2);
+    %4
+    Xbar = sum(W_i.*X_i)/sum(W_i);
+    Ybar = sum(W_i.*Y_i)/sum(W_i);
+    U_i = X_i-Xbar;
+    V_i = Y_i-Ybar;
+    beta_i = W_i.*(U_i./omegaY_i + b*V_i./omegaX_i);
+    %5
+    newB = sum(W_i.*beta_i.*V_i)/sum(W_i.*beta_i.*U_i);
+end
+% fprintf(['Converged after ' num2str(iteration)  ' iterations']);
+
+%(7) From this final value of b, together with final values of Xbar and
+%Ybar, calculate a from eq. 13a
+a = Ybar-b*Xbar;
+
+%(8) For each point X_i, Y_i, calculate the adjusted values x_i, where 
+x_i = Xbar + beta_i;
+y_i = Ybar + b.*beta_i;
+
+%(9) Using adjusted x_i, with W_i, to calculate xbar and u_i
+xbar = sum(W_i.*x_i)/sum(W_i);
+u_i = x_i-xbar;
+
+%(10) From W_i, xbar, u_i, calculate sigma_b and sigma_a
+sigma_b = (1/sum(W_i.*(u_i.^2)))^0.5;
+%sigma_b = (1/sum((u_i.^2)))^0.5;
+
+sigma_a = (1/sum(W_i)+xbar^2*sigma_b^2)^0.5;
+
+fprintf(['\r\ny = ' num2str(a)  '±' num2str(sigma_a) ' + (' num2str(b) '±' num2str(sigma_b) ')x, n = ' num2str(length(X_i)) '\n']);
+
+%% Plot data and best fit lines
+figure()
+scatter(X_i,Y_i,'k');
+
+%Plot error bars
+for t=1:length(X_i)
+    %vertical error bars
+    line([X_i(t) X_i(t)],[Y_i(t) Y_i(t)+seY_i(t)],'color','k');
+    line([X_i(t) X_i(t)],[Y_i(t) Y_i(t)-seY_i(t)],'color','k');
+    %horizontal error bars
+    line([X_i(t) X_i(t)+seX_i(t)],[Y_i(t) Y_i(t)],'color','k');
+    line([X_i(t) X_i(t)-seX_i(t)],[Y_i(t) Y_i(t)],'color','k');
+end
+hold on;
+%Plot best fit lines (unweighted (blue) and weighted (black-dashed) lines by errors)
+lineX = min(X_i()):.01:max(X_i());
+lineYweighted = a + b.*lineX;
+lineYunweighted = seedAB(2) + seedAB(1).*lineX;
+lineYMarkChurch = markChurchIntercept + bHat_m.*lineX;
+plot(lineX,lineYweighted,'--k');
+hold on;
+plot(lineX,lineYunweighted);
+hold on;
+plot(lineX,lineYMarkChurch, '.-g');
+
+
+titleText=['site = ' site 'n = ' length(X_i) 'y = ' num2str(a)  '±' num2str(sigma_a) ' + (' num2str(b) '±' num2str(sigma_b) ')x'];
+title(titleText);
+
+%% Is slope significantly different from null hypothesis slope?
+%long-term: CDF = aS^b    b = 0 consistent with supply limitation
+%short-term: W=aE^b       b = 1 consistent with supply limitation
+%mix-match: W=aE^b        b = 1 consistent with supply limitation
+nullSlope = 0; 
+alpha = 0.05;
+tCrit = abs(tinv(alpha/2,length(X_i)-2)); %obtain critical t value for two-tailed test for n-2 degrees of freedom
+if (b-orthoSigmaS*tCrit < nullSlope) &&  (b+orthoSigmaS*tCrit > nullSlope)
+    outcome = 'doNotReject';
+     fprintf(['\r\n Do not reject null hypothnesis']);
+else
+    outcome = 'reject';
+    fprintf(['Reject null hypothnesis']);
+end
+
+%% Record summary stats to data table
+headers = {'site','n', 'a', 'sigma_a', 'b', 'sigma_b', 'iterations', 'a_noError', 'b_noError', 'outcome', 'r','orthoSigmaS'};
+statisticsSummary(1,:) = headers;
+statisticsSummary(writeDataRow,1) = site;
+statisticsSummary(writeDataRow,2) = num2cell(length(X_i));
+statisticsSummary(writeDataRow,3) = num2cell(a);
+statisticsSummary(writeDataRow,4) = num2cell(sigma_a);
+statisticsSummary(writeDataRow,5) = num2cell(b);
+statisticsSummary(writeDataRow,6) = num2cell(sigma_b);
+statisticsSummary(writeDataRow,7) = num2cell(iteration);
+statisticsSummary(writeDataRow,8) = num2cell(seedAB(2));
+statisticsSummary(writeDataRow,9) = num2cell(seedAB(1));
+statisticsSummary(writeDataRow,10) = cellstr(outcome);
+statisticsSummary(writeDataRow,11) = num2cell(r);
+statisticsSummary(writeDataRow,12) = num2cell(orthoSigmaS);
+
+writeDataRow = writeDataRow+1;
+end
